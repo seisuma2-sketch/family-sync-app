@@ -74,7 +74,6 @@ export const SHOPPING_CATEGORIES: ShoppingCategory[] = [
   },
 ];
 
-// ワンタップで追加できる定番ストック品
 export const QUICK_STOCK_ITEMS = [
   { text: "牛乳", emoji: "🥛", category: "dairy_egg" },
   { text: "卵", emoji: "🥚", category: "dairy_egg" },

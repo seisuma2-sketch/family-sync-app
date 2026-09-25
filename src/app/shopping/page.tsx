@@ -10,9 +10,13 @@ import {
   ArrowDownCircle,
   Trash2,
   Plus,
+  Minus,
   Sparkles,
   Store,
   CheckCheck,
+  ChevronDown,
+  ChevronUp,
+  PartyPopper,
 } from "lucide-react";
 import clsx from "clsx";
 import { useRouter } from "next/navigation";
@@ -24,6 +28,7 @@ import {
   QUICK_STOCK_ITEMS,
   detectCategory,
   getCategoryInfo,
+  ShoppingCategory,
 } from "@/lib/shoppingCategories";
 
 type ShoppingItemWithDate = {
@@ -31,12 +36,19 @@ type ShoppingItemWithDate = {
   text: string;
   checked: boolean;
   category?: string;
+  quantity?: number;
   dateKey: string;
 };
 
 type DayData = {
   meals?: string[];
-  shopping?: { id: string; text: string; checked: boolean; category?: string }[];
+  shopping?: {
+    id: string;
+    text: string;
+    checked: boolean;
+    category?: string;
+    quantity?: number;
+  }[];
 };
 
 export default function ShoppingPage() {
@@ -47,6 +59,8 @@ export default function ShoppingPage() {
   const [selectedFilter, setSelectedFilter] = useState<string>("all");
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  // 折りたたまれたカテゴリーの記録
+  const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({});
   const router = useRouter();
 
   const getTodayKey = () => {
@@ -91,6 +105,7 @@ export default function ShoppingPage() {
     return () => unsubscribeAuth();
   }, [router]);
 
+  // すべての買い物アイテムを集約・カテゴリーと数量の正規化
   const allShoppingItems = useMemo(() => {
     const items: ShoppingItemWithDate[] = [];
     Object.entries(dayDataMap).forEach(([dateKey, data]) => {
@@ -99,6 +114,7 @@ export default function ShoppingPage() {
           items.push({
             ...item,
             category: item.category || detectCategory(item.text),
+            quantity: item.quantity || 1,
             dateKey,
           });
         });
@@ -130,43 +146,120 @@ export default function ShoppingPage() {
     return allShoppingItems.filter((item) => item.checked);
   }, [allShoppingItems]);
 
+  // ＝＝＝ 進捗率の計算 ＝＝＝
+  const totalCount = pendingItems.length + completedItems.length;
+  const progressPercent = totalCount > 0 ? Math.round((completedItems.length / totalCount) * 100) : 0;
+  const isAllCompleted = totalCount > 0 && pendingItems.length === 0;
+
+  // ＝＝＝ 売り場ごとのグループ分け ＝＝＝
+  const groupedSections = useMemo(() => {
+    if (selectedFilter === "by_date") {
+      // 日付順グループ
+      const dateMap: Record<string, ShoppingItemWithDate[]> = {};
+      pendingItems.forEach((item) => {
+        if (!dateMap[item.dateKey]) dateMap[item.dateKey] = [];
+        dateMap[item.dateKey].push(item);
+      });
+      return Object.entries(dateMap).map(([dateKey, items]) => {
+        const [_, m, d] = dateKey.split("-");
+        return {
+          id: dateKey,
+          title: `${parseInt(m)}月${parseInt(d)}日`,
+          emoji: "📅",
+          badgeColor: "bg-white/10 text-white/80 border-white/20",
+          items,
+        };
+      });
+    }
+
+    // 売り場順（カテゴリー別グループ）
+    const sections: {
+      id: string;
+      title: string;
+      emoji: string;
+      badgeColor: string;
+      items: ShoppingItemWithDate[];
+    }[] = [];
+
+    const categoriesToShow =
+      selectedFilter === "all" || selectedFilter === "store_order"
+        ? SHOPPING_CATEGORIES
+        : SHOPPING_CATEGORIES.filter((c) => c.id === selectedFilter);
+
+    categoriesToShow.forEach((cat) => {
+      const itemsInCat = pendingItems.filter((item) => item.category === cat.id);
+      if (itemsInCat.length > 0) {
+        sections.push({
+          id: cat.id,
+          title: cat.name,
+          emoji: cat.emoji,
+          badgeColor: `${cat.bgColor} ${cat.color} ${cat.borderColor}`,
+          items: itemsInCat,
+        });
+      }
+    });
+
+    return sections;
+  }, [pendingItems, selectedFilter]);
+
+  const toggleCategoryCollapse = (catId: string) => {
+    setCollapsedCategories((prev) => ({
+      ...prev,
+      [catId]: !prev[catId],
+    }));
+  };
+
+  // アイテム直接追加（スペースや改行での複数一括入力にも対応）
   const handleAddItem = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!familyId || !newItemText.trim()) return;
 
-    const text = newItemText.trim();
+    // スペース、読点、改行で分割
+    const rawTokens = newItemText.split(/[\s,、\n]+/);
+    const tokens = rawTokens.map((t) => t.trim()).filter((t) => t.length > 0);
+
+    if (tokens.length === 0) return;
+
     const todayKey = getTodayKey();
     const dayData = dayDataMap[todayKey] || {};
     const currentShopping = dayData.shopping || [];
-    const autoCat = detectCategory(text);
 
-    const newItem = {
+    const newItems = tokens.map((text) => ({
       id: Date.now().toString() + Math.random().toString(36).substring(2, 6),
       text,
       checked: false,
-      category: autoCat,
-    };
+      category: detectCategory(text),
+      quantity: 1,
+    }));
 
     setNewItemText("");
     await setDoc(
       doc(db, "users", familyId, "calendar", todayKey),
-      { shopping: [...currentShopping, newItem] },
+      { shopping: [...currentShopping, ...newItems] },
       { merge: true }
     );
-    showToast(`「${text}」を追加しました`);
+
+    if (newItems.length === 1) {
+      showToast(`「${newItems[0].text}」を追加しました`);
+    } else {
+      showToast(`${newItems.length}個の品目をまとめて追加しました`);
+    }
   };
 
+  // 定番ストックからのワンタップ追加
   const handleAddQuickStock = async (item: { text: string; emoji: string; category: string }) => {
     if (!familyId) return;
     const todayKey = getTodayKey();
     const dayData = dayDataMap[todayKey] || {};
     const currentShopping = dayData.shopping || [];
 
-    const alreadyExists = currentShopping.some(
+    const existingItem = currentShopping.find(
       (s) => s.text === item.text && !s.checked
     );
-    if (alreadyExists) {
-      showToast(`「${item.text}」はすでに追加されています`);
+    if (existingItem) {
+      // 既にある場合は数量を+1
+      await updateQuantity(todayKey, existingItem.id, 1);
+      showToast(`「${item.text}」の数量を増やしました (+1)`);
       return;
     }
 
@@ -175,6 +268,7 @@ export default function ShoppingPage() {
       text: item.text,
       checked: false,
       category: item.category,
+      quantity: 1,
     };
 
     await setDoc(
@@ -185,6 +279,29 @@ export default function ShoppingPage() {
     showToast(`${item.emoji}「${item.text}」を追加しました`);
   };
 
+  // 数量の変更 (+ / -)
+  const updateQuantity = async (dateKey: string, itemId: string, delta: number) => {
+    if (!familyId) return;
+    const dayData = dayDataMap[dateKey];
+    if (!dayData || !dayData.shopping) return;
+
+    const updatedShopping = dayData.shopping.map((item) => {
+      if (item.id === itemId) {
+        const cur = item.quantity || 1;
+        const newQty = Math.max(1, cur + delta);
+        return { ...item, quantity: newQty };
+      }
+      return item;
+    });
+
+    await setDoc(
+      doc(db, "users", familyId, "calendar", dateKey),
+      { shopping: updatedShopping },
+      { merge: true }
+    );
+  };
+
+  // チェック切り替え（カゴへ移動）
   const toggleCheck = async (dateKey: string, itemId: string) => {
     if (!familyId) return;
     const dayData = dayDataMap[dateKey];
@@ -199,6 +316,7 @@ export default function ShoppingPage() {
     );
   };
 
+  // アイテム削除
   const handleDelete = async (dateKey: string, itemId: string) => {
     if (!familyId) return;
     const dayData = dayDataMap[dateKey];
@@ -211,6 +329,7 @@ export default function ShoppingPage() {
     );
   };
 
+  // カゴに入れたものを一括削除
   const handleClearCompleted = async () => {
     if (!familyId) return;
     setShowClearConfirm(false);
@@ -235,7 +354,8 @@ export default function ShoppingPage() {
 
   const previewCategory = useMemo(() => {
     if (!newItemText.trim()) return null;
-    const catId = detectCategory(newItemText.trim());
+    const firstToken = newItemText.split(/[\s,、\n]+/)[0];
+    const catId = detectCategory(firstToken);
     return getCategoryInfo(catId);
   }, [newItemText]);
 
@@ -261,7 +381,7 @@ export default function ShoppingPage() {
 
       <div className="relative z-10 flex flex-col flex-1 min-h-screen p-4 lg:p-10 pb-28 lg:pb-12 max-w-4xl mx-auto w-full">
         {/* ヘッダー */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pr-12 md:pr-0">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4 pr-12 md:pr-0">
           <div className="flex items-center space-x-3">
             <div className="p-2.5 lg:p-3 bg-white/10 backdrop-blur-md rounded-2xl border border-white/10 shadow-lg">
               <ShoppingCart className="w-5 h-5 lg:w-6 lg:h-6 text-emerald-400" />
@@ -271,7 +391,7 @@ export default function ShoppingPage() {
                 まとめ買いリスト
               </h2>
               <p className="text-white/70 text-xs sm:text-sm font-medium mt-0.5">
-                スーパーの売り場順に自動仕分け 🛒
+                売り場順セクション × 数量調整 × 進捗ゲージ 🛒
               </p>
             </div>
           </div>
@@ -286,6 +406,34 @@ export default function ShoppingPage() {
             </div>
           </div>
         </div>
+
+        {/* ＝＝＝ 1. 買い物進捗ゲージ ＝＝＝ */}
+        {totalCount > 0 && (
+          <div className="mb-5 p-3.5 bg-black/35 backdrop-blur-xl border border-white/10 rounded-2xl shadow-xl">
+            <div className="flex items-center justify-between mb-2 text-xs">
+              <span className="font-bold text-white/80 flex items-center gap-1.5">
+                <Store className="w-3.5 h-3.5 text-emerald-400" />
+                <span>買い出し進捗</span>
+              </span>
+              <span className="font-extrabold text-emerald-300">
+                {isAllCompleted ? "✨ すべて完了！" : `あと ${pendingItems.length}品 (${progressPercent}%)`}
+              </span>
+            </div>
+            <div className="w-full h-2.5 bg-white/10 rounded-full overflow-hidden p-0.5">
+              <motion.div
+                initial={{ width: 0 }}
+                animate={{ width: `${progressPercent}%` }}
+                transition={{ duration: 0.4, ease: "easeOut" }}
+                className={clsx(
+                  "h-full rounded-full transition-all shadow-sm",
+                  isAllCompleted
+                    ? "bg-gradient-to-r from-emerald-400 to-cyan-400"
+                    : "bg-gradient-to-r from-emerald-500 to-teal-400"
+                )}
+              />
+            </div>
+          </div>
+        )}
 
         {/* ＝＝＝ 定番ストック ワンタップ追加 ＝＝＝ */}
         <div className="mb-5 bg-black/25 backdrop-blur-xl border border-white/10 rounded-2xl p-3.5 shadow-xl">
@@ -309,14 +457,14 @@ export default function ShoppingPage() {
           </div>
         </div>
 
-        {/* ＝＝＝ 新規アイテム入力フォーム ＝＝＝ */}
+        {/* ＝＝＝ 新規アイテム入力フォーム（まとめ入力対応） ＝＝＝ */}
         <form onSubmit={handleAddItem} className="mb-5 relative">
           <div className="relative flex items-center">
             <input
               type="text"
               value={newItemText}
               onChange={(e) => setNewItemText(e.target.value)}
-              placeholder="買うものを入力（例: 人参、牛乳、豚肉、洗剤）..."
+              placeholder="買うものを入力（スペース区切りで一括追加も可能）..."
               className="w-full pl-4 pr-20 py-3 bg-black/35 backdrop-blur-xl border border-white/15 rounded-2xl text-sm font-medium focus:bg-black/50 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/20 outline-none transition-all placeholder:text-white/40 text-white shadow-lg"
             />
             <button
@@ -357,7 +505,7 @@ export default function ShoppingPage() {
         </form>
 
         {/* ＝＝＝ 売り場順・フィルター切り替え ＝＝＝ */}
-        <div className="mb-4 flex items-center gap-1.5 overflow-x-auto pb-1 text-xs font-bold [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+        <div className="mb-5 flex items-center gap-1.5 overflow-x-auto pb-1 text-xs font-bold [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
           <button
             type="button"
             onClick={() => setSelectedFilter("all")}
@@ -369,7 +517,7 @@ export default function ShoppingPage() {
             )}
           >
             <Store className="w-3.5 h-3.5" />
-            <span>🏪 売り場順</span>
+            <span>🏪 売り場順（すべて）</span>
           </button>
 
           <button
@@ -409,24 +557,34 @@ export default function ShoppingPage() {
           })}
         </div>
 
-        {/* ＝＝＝ 買うものリスト ＝＝＝ */}
+        {/* ＝＝＝ 買うものリスト（セクション別グループ表示） ＝＝＝ */}
         <div className="flex-1 overflow-y-auto space-y-6">
           <div>
-            <div className="flex items-center justify-between mb-3 px-1">
-              <h3 className="text-base font-bold text-emerald-400 drop-shadow-sm flex items-center space-x-2">
-                <span>買うもの</span>
-                <span className="text-xs bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-500/30">
-                  {pendingItems.length}
-                </span>
-              </h3>
-              {selectedFilter === "all" && (
-                <span className="text-[11px] text-white/40 font-medium">
-                  スーパーを回る順で並んでいます
-                </span>
-              )}
-            </div>
-
-            {pendingItems.length === 0 ? (
+            {/* 全品達成バナー */}
+            {isAllCompleted ? (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="p-8 mb-6 bg-gradient-to-b from-emerald-500/25 to-teal-500/10 backdrop-blur-xl border border-emerald-400/30 rounded-3xl text-center shadow-2xl"
+              >
+                <div className="inline-flex items-center justify-center w-14 h-14 bg-emerald-500/30 border border-emerald-400/40 rounded-full mb-3 shadow-lg">
+                  <PartyPopper className="w-7 h-7 text-emerald-300 animate-bounce" />
+                </div>
+                <h3 className="text-xl font-extrabold text-white mb-1">
+                  買い出しコンプリート！🎉
+                </h3>
+                <p className="text-emerald-100/80 text-xs sm:text-sm font-medium mb-4">
+                  リストのすべての商品がカゴに入りました。お疲れ様でした！
+                </p>
+                <button
+                  type="button"
+                  onClick={handleClearCompleted}
+                  className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-white rounded-xl text-xs font-bold shadow-lg transition-all active:scale-95"
+                >
+                  カゴを空にして完了する
+                </button>
+              </motion.div>
+            ) : pendingItems.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-white/50 bg-black/25 backdrop-blur-md rounded-2xl border border-white/10">
                 <CheckCheck className="w-12 h-12 mb-3 text-emerald-400 opacity-60" />
                 <p className="font-bold text-base text-white/90">買うものはすべて揃っています！</p>
@@ -435,62 +593,125 @@ export default function ShoppingPage() {
                 </p>
               </div>
             ) : (
-              <div className="space-y-2.5">
-                <AnimatePresence mode="popLayout">
-                  {pendingItems.map((item) => {
-                    const catInfo = getCategoryInfo(item.category);
-                    return (
-                      <motion.div
-                        key={item.id}
-                        layout
-                        initial={{ opacity: 0, scale: 0.95 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        exit={{ opacity: 0, scale: 0.9, x: -20 }}
-                        transition={{ duration: 0.2 }}
-                        onClick={() => toggleCheck(item.dateKey, item.id)}
-                        className="flex items-center justify-between p-3.5 bg-black/30 backdrop-blur-md border border-white/10 rounded-2xl shadow-lg hover:bg-white/15 hover:border-emerald-400/50 cursor-pointer transition-all group"
+              /* ＝＝＝ 売り場セクション一覧 ＝＝＝ */
+              <div className="space-y-5">
+                {groupedSections.map((section) => {
+                  const isCollapsed = collapsedCategories[section.id];
+                  return (
+                    <div
+                      key={section.id}
+                      className="bg-black/20 backdrop-blur-md border border-white/10 rounded-2xl p-3.5 shadow-lg"
+                    >
+                      {/* セクション見出し */}
+                      <button
+                        type="button"
+                        onClick={() => toggleCategoryCollapse(section.id)}
+                        className="w-full flex items-center justify-between pb-2 mb-2 border-b border-white/10 text-left group"
                       >
-                        <div className="flex items-center space-x-3 overflow-hidden flex-1">
-                          <Circle className="w-5 h-5 text-white/30 shrink-0 group-hover:text-emerald-400 transition-colors" />
-                          <span className="text-base font-bold text-white truncate drop-shadow-sm">
-                            {item.text}
+                        <div className="flex items-center space-x-2">
+                          <span className="text-base">{section.emoji}</span>
+                          <span className="text-sm font-extrabold text-white tracking-tight">
+                            {section.title}
+                          </span>
+                          <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-white/10 text-white/80 border border-white/10">
+                            {section.items.length}品
                           </span>
                         </div>
-
-                        <div className="flex items-center space-x-2 shrink-0 ml-3">
-                          <span
-                            className={clsx(
-                              "inline-flex items-center space-x-1 px-2.5 py-1 rounded-xl text-[11px] font-bold border shadow-sm",
-                              catInfo.bgColor,
-                              catInfo.borderColor,
-                              catInfo.color
-                            )}
-                          >
-                            <span>{catInfo.emoji}</span>
-                            <span className="hidden sm:inline">{catInfo.name}</span>
-                          </span>
-
-                          <div className="flex items-center space-x-1 px-2.5 py-1 bg-white/10 rounded-xl text-[11px] font-bold text-white/60">
-                            <CalendarIcon className="w-3 h-3 text-white/40" />
-                            <span>{formatDate(item.dateKey)}</span>
-                          </div>
-
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDelete(item.dateKey, item.id);
-                            }}
-                            className="p-1.5 text-white/30 hover:text-red-400 hover:bg-red-400/10 rounded-xl transition-all sm:opacity-0 group-hover:opacity-100"
-                            title="削除"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                        <div className="text-white/40 group-hover:text-white/80 transition-colors">
+                          {isCollapsed ? (
+                            <ChevronDown className="w-4 h-4" />
+                          ) : (
+                            <ChevronUp className="w-4 h-4" />
+                          )}
                         </div>
-                      </motion.div>
-                    );
-                  })}
-                </AnimatePresence>
+                      </button>
+
+                      {/* セクション内アイテム */}
+                      {!isCollapsed && (
+                        <div className="space-y-2">
+                          <AnimatePresence mode="popLayout">
+                            {section.items.map((item) => (
+                              <motion.div
+                                key={item.id}
+                                layout
+                                initial={{ opacity: 0, scale: 0.95 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                exit={{ opacity: 0, scale: 0.9, x: -20 }}
+                                transition={{ duration: 0.15 }}
+                                onClick={() => toggleCheck(item.dateKey, item.id)}
+                                className="flex items-center justify-between p-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl shadow-sm cursor-pointer transition-all group"
+                              >
+                                {/* 左側：チェックボックスと品名 */}
+                                <div className="flex items-center space-x-3 overflow-hidden flex-1">
+                                  <Circle className="w-5 h-5 text-white/30 shrink-0 group-hover:text-emerald-400 transition-colors" />
+                                  <div className="flex items-center space-x-2 truncate">
+                                    <span className="text-sm sm:text-base font-bold text-white truncate drop-shadow-sm">
+                                      {item.text}
+                                    </span>
+                                    {/* 数量が2以上のときのハイライトバッジ */}
+                                    {(item.quantity || 1) > 1 && (
+                                      <span className="px-1.5 py-0.5 rounded-md bg-emerald-500/30 border border-emerald-400/40 text-emerald-300 text-xs font-black shrink-0">
+                                        ×{item.quantity}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* 右側：数量カウンター (+/-) と日付と削除ボタン */}
+                                <div className="flex items-center space-x-2 shrink-0 ml-2">
+                                  {/* 数量カウンター (+ / -) */}
+                                  <div
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="flex items-center bg-black/40 border border-white/15 rounded-lg px-1 py-0.5"
+                                  >
+                                    <button
+                                      type="button"
+                                      onClick={() => updateQuantity(item.dateKey, item.id, -1)}
+                                      className="w-5 h-5 flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 rounded transition-all active:scale-90"
+                                      title="減らす"
+                                    >
+                                      <Minus className="w-3 h-3" />
+                                    </button>
+                                    <span className="px-1 text-xs font-bold text-white min-w-[16px] text-center">
+                                      {item.quantity || 1}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => updateQuantity(item.dateKey, item.id, 1)}
+                                      className="w-5 h-5 flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 rounded transition-all active:scale-90"
+                                      title="増やす"
+                                    >
+                                      <Plus className="w-3 h-3" />
+                                    </button>
+                                  </div>
+
+                                  {/* 日付バッジ */}
+                                  <div className="flex items-center space-x-1 px-2 py-1 bg-white/10 rounded-lg text-[10px] font-bold text-white/60">
+                                    <CalendarIcon className="w-2.5 h-2.5 text-white/40" />
+                                    <span>{formatDate(item.dateKey)}</span>
+                                  </div>
+
+                                  {/* 削除ボタン */}
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleDelete(item.dateKey, item.id);
+                                    }}
+                                    className="p-1 text-white/30 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-all sm:opacity-0 group-hover:opacity-100"
+                                    title="削除"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </motion.div>
+                            ))}
+                          </AnimatePresence>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -552,6 +773,7 @@ export default function ShoppingPage() {
                         <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
                         <span className="text-sm font-medium text-white/60 line-through truncate">
                           {item.text}
+                          {(item.quantity || 1) > 1 && ` (×${item.quantity})`}
                         </span>
                         <span className="text-[10px] font-bold text-white/30 shrink-0 ml-1">
                           {formatDate(item.dateKey)}
