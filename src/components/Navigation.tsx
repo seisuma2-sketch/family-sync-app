@@ -110,7 +110,7 @@ export default function Navigation() {
               displayName: data.displayName || "メンバー",
               emoji: data.emoji || "👤",
               photoUrl: data.photoUrl || null,
-              wishlist: data.wishlist || [],
+              wishlist: Array.isArray(data.wishlist) ? data.wishlist : [],
             });
           }
         });
@@ -585,30 +585,31 @@ export default function Navigation() {
 
                   <div className="space-y-2 mb-4 max-h-[25vh] overflow-y-auto pr-2">
                     <AnimatePresence>
-                      {profile.wishlist.length === 0 && (
+                      {(!Array.isArray(profile.wishlist) || profile.wishlist.length === 0) && (
                         <p className="text-sm text-white/40 text-center py-4 bg-black/20 rounded-xl border border-white/5">
                           登録されていません
                         </p>
                       )}
-                      {profile.wishlist.map((wish) => (
-                        <motion.div
-                          initial={{ opacity: 0, y: -10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, scale: 0.9 }}
-                          key={wish.id}
-                          className="flex items-center justify-between p-3 bg-white/5 border border-white/10 rounded-xl group"
-                        >
-                          <span className="text-sm font-bold text-white/90 pl-1">
-                            {wish.text}
-                          </span>
-                          <button
-                            onClick={() => handleDeleteWish(wish.id)}
-                            className="p-1.5 text-white/30 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-all shrink-0"
+                      {Array.isArray(profile.wishlist) &&
+                        profile.wishlist.map((wish) => (
+                          <motion.div
+                            initial={{ opacity: 0, y: -10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.9 }}
+                            key={wish.id}
+                            className="flex items-center justify-between p-3 bg-white/5 border border-white/10 rounded-xl group"
                           >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </motion.div>
-                      ))}
+                            <span className="text-sm font-bold text-white/90 pl-1">
+                              {wish.text}
+                            </span>
+                            <button
+                              onClick={() => handleDeleteWish(wish.id)}
+                              className="p-1.5 text-white/30 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-all shrink-0"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </motion.div>
+                        ))}
                     </AnimatePresence>
                   </div>
 

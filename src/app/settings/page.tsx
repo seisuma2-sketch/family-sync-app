@@ -266,7 +266,7 @@ export default function SettingsPage() {
                   </div>
                   
                   <div className="space-y-2 max-h-[40vh] overflow-y-auto pr-2">
-                    {(!selectedPartner.wishlist || selectedPartner.wishlist.length === 0) ? (
+                    {(!Array.isArray(selectedPartner.wishlist) || selectedPartner.wishlist.length === 0) ? (
                       <p className="text-sm text-white/40 text-center py-6 bg-black/20 rounded-xl border border-white/5">まだ何も登録されていません</p>
                     ) : (
                       selectedPartner.wishlist.map((wish) => (
