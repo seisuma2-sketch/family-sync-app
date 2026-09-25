@@ -1,0 +1,26 @@
+{
+  "name": "Family Sync",
+  "short_name": "Family Sync",
+  "description": "家族で共有する買い物リストと献立カレンダーアプリ",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#07160e",
+  "theme_color": "#07160e",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ]
+}
