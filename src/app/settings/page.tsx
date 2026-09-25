@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc, setDoc, collection, query, where, onSnapshot } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
+import { triggerHaptic } from "@/lib/haptics";
 import clsx from "clsx";
 
 type WishItem = { id: string; text: string };
@@ -70,12 +71,14 @@ export default function SettingsPage() {
 
   const handleGroupTypeChange = async (type: string) => {
     if (!userId) return;
+    triggerHaptic("light");
     setGroupType(type);
     await setDoc(doc(db, "users", userId), { groupType: type }, { merge: true });
   };
 
   const handleCopyCode = () => {
     if (!userId) return;
+    triggerHaptic("light");
     navigator.clipboard.writeText(userId);
     setToastMsg("招待コードをコピーしました！");
     setTimeout(() => setToastMsg(""), 3000);
@@ -84,6 +87,7 @@ export default function SettingsPage() {
   const handleLinkPartner = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!userId || !inviteCodeInput.trim()) return;
+    triggerHaptic("medium");
     try {
       await setDoc(doc(db, "users", userId), { familyId: inviteCodeInput.trim() }, { merge: true });
       setInviteCodeInput("");
@@ -94,7 +98,7 @@ export default function SettingsPage() {
     }
   };
 
-  if (isLoading) return <div className="min-h-screen bg-black flex items-center justify-center text-emerald-400">Loading...</div>;
+  if (isLoading) return <div className="min-h-screen bg-black flex items-center justify-center text-emerald-400 font-bold">Loading...</div>;
 
   const groupTypes = [
     { id: "couple", label: "カップル", icon: Heart },
@@ -109,16 +113,16 @@ export default function SettingsPage() {
         <div className="absolute inset-0 bg-black/50" />
       </div>
 
-      <div className="relative z-10 flex flex-col flex-1 min-h-screen p-4 lg:p-10 pb-24 lg:pb-8 ml-0 md:ml-64">
+      <div className="relative z-10 flex flex-col flex-1 min-h-screen p-4 lg:p-10 pb-28 lg:pb-12 max-w-5xl mx-auto w-full">
         
-        <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4 pr-12 md:pr-0">
           <div className="flex items-center space-x-3">
             <div className="p-3 bg-white/10 backdrop-blur-md rounded-2xl border border-white/10 shadow-lg">
               <Users className="w-6 h-6 text-emerald-400" />
             </div>
             <div>
-              <h2 className="text-2xl lg:text-3xl font-extrabold text-white drop-shadow-md tracking-tight">メンバー管理</h2>
-              <p className="text-white/60 text-sm font-medium mt-1">ダッシュボード</p>
+              <h2 className="text-xl lg:text-3xl font-extrabold text-white drop-shadow-md tracking-tight">メンバー管理</h2>
+              <p className="text-white/60 text-xs sm:text-sm font-medium mt-0.5">ダッシュボード</p>
             </div>
           </div>
           
@@ -128,10 +132,10 @@ export default function SettingsPage() {
               return (
                 <button
                   key={type.id} onClick={() => handleGroupTypeChange(type.id)}
-                  className={clsx("flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-bold transition-all", groupType === type.id ? "bg-white/20 text-white shadow-sm" : "text-white/40 hover:text-white/80 hover:bg-white/5")}
+                  className={clsx("flex items-center space-x-2 px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg text-xs sm:text-sm font-bold transition-all active:scale-95", groupType === type.id ? "bg-white/20 text-white shadow-sm" : "text-white/40 hover:text-white/80 hover:bg-white/5")}
                 >
                   <Icon className="w-4 h-4" />
-                  <span className="hidden sm:inline">{type.label}</span>
+                  <span className="inline">{type.label}</span>
                 </button>
               );
             })}

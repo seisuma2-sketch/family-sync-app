@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ShoppingCart,
@@ -17,6 +17,7 @@ import {
   ChevronDown,
   ChevronUp,
   PartyPopper,
+  Compass,
 } from "lucide-react";
 import clsx from "clsx";
 import { useRouter } from "next/navigation";
@@ -28,8 +29,8 @@ import {
   QUICK_STOCK_ITEMS,
   detectCategory,
   getCategoryInfo,
-  ShoppingCategory,
 } from "@/lib/shoppingCategories";
+import { triggerHaptic } from "@/lib/haptics";
 
 type ShoppingItemWithDate = {
   id: string;
@@ -61,6 +62,7 @@ export default function ShoppingPage() {
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   // 折りたたまれたカテゴリーの記録
   const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({});
+  const prevPendingLengthRef = useRef<number | null>(null);
   const router = useRouter();
 
   const getTodayKey = () => {
@@ -148,8 +150,22 @@ export default function ShoppingPage() {
 
   // ＝＝＝ 進捗率の計算 ＝＝＝
   const totalCount = pendingItems.length + completedItems.length;
-  const progressPercent = totalCount > 0 ? Math.round((completedItems.length / totalCount) * 100) : 0;
+  const progressPercent =
+    totalCount > 0 ? Math.round((completedItems.length / totalCount) * 100) : 0;
   const isAllCompleted = totalCount > 0 && pendingItems.length === 0;
+
+  // 全達成した瞬間にハプティクス（success）を発火
+  useEffect(() => {
+    if (
+      prevPendingLengthRef.current !== null &&
+      prevPendingLengthRef.current > 0 &&
+      pendingItems.length === 0 &&
+      totalCount > 0
+    ) {
+      triggerHaptic("success");
+    }
+    prevPendingLengthRef.current = pendingItems.length;
+  }, [pendingItems.length, totalCount]);
 
   // ＝＝＝ 売り場ごとのグループ分け ＝＝＝
   const groupedSections = useMemo(() => {
@@ -203,16 +219,28 @@ export default function ShoppingPage() {
   }, [pendingItems, selectedFilter]);
 
   const toggleCategoryCollapse = (catId: string) => {
+    triggerHaptic("light");
     setCollapsedCategories((prev) => ({
       ...prev,
       [catId]: !prev[catId],
     }));
   };
 
+  // 売り場セクションへスムーズスクロール
+  const scrollToSection = (sectionId: string) => {
+    triggerHaptic("light");
+    const el = document.getElementById(`cat-sec-${sectionId}`);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  };
+
   // アイテム直接追加（スペースや改行での複数一括入力にも対応）
   const handleAddItem = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!familyId || !newItemText.trim()) return;
+
+    triggerHaptic("light");
 
     // スペース、読点、改行で分割
     const rawTokens = newItemText.split(/[\s,、\n]+/);
@@ -247,8 +275,14 @@ export default function ShoppingPage() {
   };
 
   // 定番ストックからのワンタップ追加
-  const handleAddQuickStock = async (item: { text: string; emoji: string; category: string }) => {
+  const handleAddQuickStock = async (item: {
+    text: string;
+    emoji: string;
+    category: string;
+  }) => {
     if (!familyId) return;
+    triggerHaptic("medium");
+
     const todayKey = getTodayKey();
     const dayData = dayDataMap[todayKey] || {};
     const currentShopping = dayData.shopping || [];
@@ -280,8 +314,14 @@ export default function ShoppingPage() {
   };
 
   // 数量の変更 (+ / -)
-  const updateQuantity = async (dateKey: string, itemId: string, delta: number) => {
+  const updateQuantity = async (
+    dateKey: string,
+    itemId: string,
+    delta: number
+  ) => {
     if (!familyId) return;
+    triggerHaptic("light");
+
     const dayData = dayDataMap[dateKey];
     if (!dayData || !dayData.shopping) return;
 
@@ -304,6 +344,8 @@ export default function ShoppingPage() {
   // チェック切り替え（カゴへ移動）
   const toggleCheck = async (dateKey: string, itemId: string) => {
     if (!familyId) return;
+    triggerHaptic("medium");
+
     const dayData = dayDataMap[dateKey];
     if (!dayData || !dayData.shopping) return;
     const updatedShopping = dayData.shopping.map((item) =>
@@ -319,6 +361,8 @@ export default function ShoppingPage() {
   // アイテム削除
   const handleDelete = async (dateKey: string, itemId: string) => {
     if (!familyId) return;
+    triggerHaptic("heavy");
+
     const dayData = dayDataMap[dateKey];
     if (!dayData || !dayData.shopping) return;
     const updatedShopping = dayData.shopping.filter((item) => item.id !== itemId);
@@ -332,6 +376,7 @@ export default function ShoppingPage() {
   // カゴに入れたものを一括削除
   const handleClearCompleted = async () => {
     if (!familyId) return;
+    triggerHaptic("heavy");
     setShowClearConfirm(false);
     const promises = Object.entries(dayDataMap).map(async ([dateKey, data]) => {
       if (data.shopping && data.shopping.some((item) => item.checked)) {
@@ -361,7 +406,7 @@ export default function ShoppingPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#0a1914] flex items-center justify-center text-emerald-400">
+      <div className="min-h-screen bg-[#0a1914] flex items-center justify-center text-emerald-400 font-bold">
         Loading...
       </div>
     );
@@ -379,9 +424,9 @@ export default function ShoppingPage() {
         <div className="absolute inset-0 bg-black/40" />
       </div>
 
-      <div className="relative z-10 flex flex-col flex-1 min-h-screen p-4 lg:p-10 pb-28 lg:pb-12 max-w-4xl mx-auto w-full">
+      <div className="relative z-10 flex flex-col flex-1 min-h-screen p-3 lg:p-10 pb-28 lg:pb-12 max-w-4xl mx-auto w-full">
         {/* ヘッダー */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4 pr-12 md:pr-0">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pr-12 md:pr-0">
           <div className="flex items-center space-x-3">
             <div className="p-2.5 lg:p-3 bg-white/10 backdrop-blur-md rounded-2xl border border-white/10 shadow-lg">
               <ShoppingCart className="w-5 h-5 lg:w-6 lg:h-6 text-emerald-400" />
@@ -409,14 +454,16 @@ export default function ShoppingPage() {
 
         {/* ＝＝＝ 1. 買い物進捗ゲージ ＝＝＝ */}
         {totalCount > 0 && (
-          <div className="mb-5 p-3.5 bg-black/35 backdrop-blur-xl border border-white/10 rounded-2xl shadow-xl">
+          <div className="mb-4 p-3.5 bg-black/35 backdrop-blur-xl border border-white/10 rounded-2xl shadow-xl">
             <div className="flex items-center justify-between mb-2 text-xs">
               <span className="font-bold text-white/80 flex items-center gap-1.5">
                 <Store className="w-3.5 h-3.5 text-emerald-400" />
                 <span>買い出し進捗</span>
               </span>
               <span className="font-extrabold text-emerald-300">
-                {isAllCompleted ? "✨ すべて完了！" : `あと ${pendingItems.length}品 (${progressPercent}%)`}
+                {isAllCompleted
+                  ? "✨ すべて完了！"
+                  : `あと ${pendingItems.length}品 (${progressPercent}%)`}
               </span>
             </div>
             <div className="w-full h-2.5 bg-white/10 rounded-full overflow-hidden p-0.5">
@@ -436,10 +483,12 @@ export default function ShoppingPage() {
         )}
 
         {/* ＝＝＝ 定番ストック ワンタップ追加 ＝＝＝ */}
-        <div className="mb-5 bg-black/25 backdrop-blur-xl border border-white/10 rounded-2xl p-3.5 shadow-xl">
-          <div className="flex items-center space-x-2 mb-2">
-            <Sparkles className="w-4 h-4 text-amber-300" />
-            <span className="text-xs font-bold text-white/90">定番ストックをワンタップ追加</span>
+        <div className="mb-4 bg-black/25 backdrop-blur-xl border border-white/10 rounded-2xl p-3 shadow-xl">
+          <div className="flex items-center space-x-2 mb-2 px-1">
+            <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+            <span className="text-xs font-bold text-white/90">
+              定番ストックをワンタップ追加
+            </span>
           </div>
           <div className="flex items-center gap-2 overflow-x-auto pb-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
             {QUICK_STOCK_ITEMS.map((item) => (
@@ -458,7 +507,7 @@ export default function ShoppingPage() {
         </div>
 
         {/* ＝＝＝ 新規アイテム入力フォーム（まとめ入力対応） ＝＝＝ */}
-        <form onSubmit={handleAddItem} className="mb-5 relative">
+        <form onSubmit={handleAddItem} className="mb-4 relative">
           <div className="relative flex items-center">
             <input
               type="text"
@@ -505,12 +554,15 @@ export default function ShoppingPage() {
         </form>
 
         {/* ＝＝＝ 売り場順・フィルター切り替え ＝＝＝ */}
-        <div className="mb-5 flex items-center gap-1.5 overflow-x-auto pb-1 text-xs font-bold [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+        <div className="mb-3 flex items-center gap-1.5 overflow-x-auto pb-1 text-xs font-bold [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
           <button
             type="button"
-            onClick={() => setSelectedFilter("all")}
+            onClick={() => {
+              triggerHaptic("light");
+              setSelectedFilter("all");
+            }}
             className={clsx(
-              "px-3 py-1.5 rounded-xl border transition-all shrink-0 flex items-center space-x-1.5 shadow-sm",
+              "px-3 py-1.5 rounded-xl border transition-all shrink-0 flex items-center space-x-1.5 shadow-sm active:scale-95",
               selectedFilter === "all"
                 ? "bg-emerald-500 text-white border-emerald-400 shadow-emerald-500/20 shadow-md"
                 : "bg-white/10 text-white/70 border-white/10 hover:bg-white/15 hover:text-white"
@@ -522,9 +574,12 @@ export default function ShoppingPage() {
 
           <button
             type="button"
-            onClick={() => setSelectedFilter("by_date")}
+            onClick={() => {
+              triggerHaptic("light");
+              setSelectedFilter("by_date");
+            }}
             className={clsx(
-              "px-3 py-1.5 rounded-xl border transition-all shrink-0 flex items-center space-x-1.5 shadow-sm",
+              "px-3 py-1.5 rounded-xl border transition-all shrink-0 flex items-center space-x-1.5 shadow-sm active:scale-95",
               selectedFilter === "by_date"
                 ? "bg-emerald-500 text-white border-emerald-400 shadow-emerald-500/20 shadow-md"
                 : "bg-white/10 text-white/70 border-white/10 hover:bg-white/15 hover:text-white"
@@ -542,9 +597,12 @@ export default function ShoppingPage() {
               <button
                 key={cat.id}
                 type="button"
-                onClick={() => setSelectedFilter(cat.id)}
+                onClick={() => {
+                  triggerHaptic("light");
+                  setSelectedFilter(cat.id);
+                }}
                 className={clsx(
-                  "px-2.5 py-1.5 rounded-xl border transition-all shrink-0 flex items-center space-x-1 shadow-sm",
+                  "px-2.5 py-1.5 rounded-xl border transition-all shrink-0 flex items-center space-x-1 shadow-sm active:scale-95",
                   isSelected
                     ? "bg-white/25 text-white border-white/40 ring-1 ring-white/50"
                     : "bg-white/5 text-white/60 border-white/10 hover:bg-white/15 hover:text-white"
@@ -556,6 +614,30 @@ export default function ShoppingPage() {
             );
           })}
         </div>
+
+        {/* ＝＝＝ 売り場クイックジャンプ（アンカーナビ） ＝＝＝ */}
+        {groupedSections.length > 1 && (
+          <div className="mb-4 flex items-center gap-1.5 overflow-x-auto pb-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+            <div className="flex items-center space-x-1 text-[11px] font-bold text-emerald-400 shrink-0 pr-1">
+              <Compass className="w-3.5 h-3.5" />
+              <span>ジャンプ:</span>
+            </div>
+            {groupedSections.map((sec) => (
+              <button
+                key={`jump-${sec.id}`}
+                type="button"
+                onClick={() => scrollToSection(sec.id)}
+                className="px-2.5 py-1 rounded-xl bg-black/40 hover:bg-white/15 border border-white/10 text-[11px] font-bold text-white/80 shrink-0 flex items-center space-x-1 active:scale-95 transition-all shadow-sm"
+              >
+                <span>{sec.emoji}</span>
+                <span>{sec.title}</span>
+                <span className="text-[9px] px-1 py-0.2 rounded-full bg-white/15 text-emerald-300">
+                  {sec.items.length}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* ＝＝＝ 買うものリスト（セクション別グループ表示） ＝＝＝ */}
         <div className="flex-1 overflow-y-auto space-y-6">
@@ -587,20 +669,23 @@ export default function ShoppingPage() {
             ) : pendingItems.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-white/50 bg-black/25 backdrop-blur-md rounded-2xl border border-white/10">
                 <CheckCheck className="w-12 h-12 mb-3 text-emerald-400 opacity-60" />
-                <p className="font-bold text-base text-white/90">買うものはすべて揃っています！</p>
+                <p className="font-bold text-base text-white/90">
+                  買うものはすべて揃っています！
+                </p>
                 <p className="text-xs text-white/50 mt-1">
                   上の定番ストックや入力欄から、思いついたものをサッと追加できます。
                 </p>
               </div>
             ) : (
               /* ＝＝＝ 売り場セクション一覧 ＝＝＝ */
-              <div className="space-y-5">
+              <div className="space-y-4">
                 {groupedSections.map((section) => {
                   const isCollapsed = collapsedCategories[section.id];
                   return (
                     <div
                       key={section.id}
-                      className="bg-black/20 backdrop-blur-md border border-white/10 rounded-2xl p-3.5 shadow-lg"
+                      id={`cat-sec-${section.id}`}
+                      className="bg-black/20 backdrop-blur-md border border-white/10 rounded-2xl p-3.5 shadow-lg scroll-mt-4"
                     >
                       {/* セクション見出し */}
                       <button
@@ -639,7 +724,7 @@ export default function ShoppingPage() {
                                 exit={{ opacity: 0, scale: 0.9, x: -20 }}
                                 transition={{ duration: 0.15 }}
                                 onClick={() => toggleCheck(item.dateKey, item.id)}
-                                className="flex items-center justify-between p-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl shadow-sm cursor-pointer transition-all group"
+                                className="flex items-center justify-between p-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl shadow-sm cursor-pointer transition-all group active:scale-[0.99]"
                               >
                                 {/* 左側：チェックボックスと品名 */}
                                 <div className="flex items-center space-x-3 overflow-hidden flex-1">
@@ -666,7 +751,9 @@ export default function ShoppingPage() {
                                   >
                                     <button
                                       type="button"
-                                      onClick={() => updateQuantity(item.dateKey, item.id, -1)}
+                                      onClick={() =>
+                                        updateQuantity(item.dateKey, item.id, -1)
+                                      }
                                       className="w-5 h-5 flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 rounded transition-all active:scale-90"
                                       title="減らす"
                                     >
@@ -677,7 +764,9 @@ export default function ShoppingPage() {
                                     </span>
                                     <button
                                       type="button"
-                                      onClick={() => updateQuantity(item.dateKey, item.id, 1)}
+                                      onClick={() =>
+                                        updateQuantity(item.dateKey, item.id, 1)
+                                      }
                                       className="w-5 h-5 flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 rounded transition-all active:scale-90"
                                       title="増やす"
                                     >
@@ -742,7 +831,7 @@ export default function ShoppingPage() {
                     <button
                       type="button"
                       onClick={handleClearCompleted}
-                      className="px-2.5 py-1 bg-red-500/80 hover:bg-red-500 text-white rounded-lg text-xs font-bold shadow-sm"
+                      className="px-2.5 py-1 bg-red-500/80 hover:bg-red-500 text-white rounded-lg text-xs font-bold shadow-sm active:scale-95"
                     >
                       削除
                     </button>
@@ -767,7 +856,7 @@ export default function ShoppingPage() {
                       animate={{ opacity: 1, height: "auto" }}
                       exit={{ opacity: 0, scale: 0.9 }}
                       onClick={() => toggleCheck(item.dateKey, item.id)}
-                      className="flex items-center justify-between p-3 bg-black/35 backdrop-blur-md border border-white/5 rounded-xl cursor-pointer hover:bg-white/10 transition-colors group"
+                      className="flex items-center justify-between p-3 bg-black/35 backdrop-blur-md border border-white/5 rounded-xl cursor-pointer hover:bg-white/10 transition-colors group active:scale-[0.99]"
                     >
                       <div className="flex items-center space-x-3 overflow-hidden flex-1">
                         <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
