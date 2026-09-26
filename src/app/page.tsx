@@ -383,7 +383,7 @@ const DetailContent = ({
                         ) : (
                           <Circle className="w-5 h-5 text-white/40 shrink-0 group-hover:text-emerald-300 transition-colors" />
                         )}
-                        <span className="text-xs shrink-0">{cat.icon}</span>
+                        <span className="text-xs shrink-0">{cat.emoji}</span>
                         <span
                           className={clsx(
                             "text-sm font-bold truncate pr-2 transition-all",
